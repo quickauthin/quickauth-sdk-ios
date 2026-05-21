@@ -1,5 +1,5 @@
 Pod::Spec.new do |s|
-  s.name             = 'Quickauth'
+  s.name             = 'QuickAuthIn'
   s.module_name      = 'QuickAuth'
   s.version          = '0.1.0'
   s.summary          = 'QuickAuth iOS SDK — Phone OTP + WhatsApp marketing attribution.'

@@ -23,10 +23,10 @@ Then add `"QuickAuth"` to your target dependencies.
 ### CocoaPods
 
 ```ruby
-pod 'Quickauth', '~> 0.1.0'
+pod 'QuickAuthIn', '~> 0.1.0'
 ```
 
-> Note: the pod name is `Quickauth` (lowercase `a`) on CocoaPods. Your Swift code still uses `import QuickAuth` — only the Podfile entry uses the lowercase form.
+> Note: the pod is named `QuickAuthIn` on CocoaPods (the unsuffixed `QuickAuth` name was already taken by an unrelated library). Your Swift code still uses `import QuickAuth` — only the Podfile entry uses the suffixed name.
 
 ---
 
