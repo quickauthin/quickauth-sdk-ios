@@ -1,0 +1,28 @@
+# Xcode
+build/
+DerivedData/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+*.xcuserstate
+*.xcuserdatad/
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Package.resolved
+Packages/
+
+# CocoaPods
+Pods/
+*.pbxproj.bak
+
+# macOS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+
+# Misc
+*.log
+*.tmp
