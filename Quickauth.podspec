@@ -13,7 +13,7 @@ tracking. Ships with both headless APIs and pre-built SwiftUI/UIKit components.
   s.homepage         = 'https://quickauth.in'
   s.license          = { :type => 'MIT', :file => 'LICENSE' }
   s.author           = { 'QuickAuth' => 'contact@quickauth.in' }
-  s.source           = { :git => 'https://github.com/quickauthin/quickauth-sdk-ios.git', :tag => s.version.to_s }
+  s.source           = { :git => 'https://github.com/quickauthin/quickauth-sdk-ios.git', :tag => "v#{s.version}" }
 
   s.ios.deployment_target = '14.0'
   s.swift_version         = '5.9'
