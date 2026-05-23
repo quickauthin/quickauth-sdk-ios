@@ -48,16 +48,17 @@ final class OTPServiceTests: XCTestCase {
         XCTAssertEqual(dict?["channel"] as? String, "sms")
     }
 
-    func testVerifyOTPParsesJWT() async throws {
+    func testVerifyOTPParsesVerifiedAndRequestId() async throws {
         MockURLProtocol.requestHandler = { _ in
             let r = HTTPURLResponse(url: URL(string: "https://api.example.test/v1/sdk/auth/verify")!,
                                     statusCode: 200, httpVersion: nil, headerFields: nil)!
-            return (r, "{\"jwt\":\"a.b.c\",\"expires_in\":3600}".data(using: .utf8))
+            return (r, "{\"verified\":true,\"requestId\":\"req_abc\",\"message\":\"Verified successfully\"}".data(using: .utf8))
         }
         let svc = makeService()
         let result = try await svc.verifyOTP(sessionId: "sess_1", code: "123456")
-        XCTAssertEqual(result.jwt, "a.b.c")
-        XCTAssertEqual(result.expiresIn, 3600)
+        XCTAssertTrue(result.verified)
+        XCTAssertEqual(result.requestId, "req_abc")
+        XCTAssertEqual(result.message, "Verified successfully")
     }
 
     func testObserveOTPReceivesPublishedCode() {

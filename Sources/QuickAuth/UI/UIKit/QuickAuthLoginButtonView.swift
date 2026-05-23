@@ -70,7 +70,12 @@ public final class QuickAuthLoginButtonView: UIButton {
             Task { @MainActor in
                 do {
                     let result = try await QuickAuth.shared.auth.verifyOTP(sessionId: sessionId, code: code)
-                    self.onSuccess?(result.jwt)
+                    if result.verified {
+                        self.onSuccess?(result.requestId)
+                    } else {
+                        self.onError?(NSError(domain: "QuickAuth", code: -1,
+                                              userInfo: [NSLocalizedDescriptionKey: result.message]))
+                    }
                 } catch {
                     self.onError?(error)
                 }

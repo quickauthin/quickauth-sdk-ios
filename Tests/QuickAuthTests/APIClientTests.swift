@@ -135,18 +135,19 @@ final class APIClientTests: XCTestCase {
         XCTAssertEqual(counter.value, 2)
     }
 
-    func testJWTParseInVerifyResponse() async throws {
+    func testVerifyResponseDecodesNewShape() async throws {
         MockURLProtocol.requestHandler = { _ in
             let r = HTTPURLResponse(url: URL(string: "https://api.example.test/v1/sdk/auth/verify")!,
                                     statusCode: 200, httpVersion: nil, headerFields: nil)!
-            return (r, "{\"jwt\":\"abc.def.ghi\",\"expires_in\":3600}".data(using: .utf8))
+            return (r, "{\"verified\":true,\"requestId\":\"req_abc\",\"message\":\"Verified successfully\"}".data(using: .utf8))
         }
         struct Req: Encodable { let sessionId: String; let code: String }
         let api = makeClient(initialToken: "tkn")
         let resp: OTPVerification = try await api.post(path: "/v1/sdk/auth/verify",
                                                        body: Req(sessionId: "s1", code: "111111"))
-        XCTAssertEqual(resp.jwt, "abc.def.ghi")
-        XCTAssertEqual(resp.expiresIn, 3600)
+        XCTAssertTrue(resp.verified)
+        XCTAssertEqual(resp.requestId, "req_abc")
+        XCTAssertEqual(resp.message, "Verified successfully")
     }
 
     func test401InvalidatesAndRetriesOnce() async throws {
