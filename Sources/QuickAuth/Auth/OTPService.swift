@@ -24,10 +24,22 @@ public struct OTPSession: Decodable, Equatable {
     public let channel: String?
 }
 
-/// Returned by `verifyOTP`.
+/// Result of `verifyOTP`.
+///
+/// QuickAuth is a verification provider, not an identity provider. We tell
+/// you whether the phone was verified — you forward `requestId` to your own
+/// backend, which confirms server-to-server via
+/// `GET /v1/auth/status?requestId=...` (with `X-Client-Id` / `X-Client-Secret`)
+/// and mints its own session JWT against its own user table.
+///
+/// See https://quickauth.in/docs/backend
 public struct OTPVerification: Decodable, Equatable {
-    public let jwt: String
-    public let expiresIn: Int
+    /// True iff the OTP matched and the phone is now verified.
+    public let verified: Bool
+    /// Opaque id — forward this to your backend for server-to-server confirmation.
+    public let requestId: String
+    /// Human-readable status, e.g. "Verified successfully".
+    public let message: String
 }
 
 /// Internal request types.

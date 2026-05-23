@@ -15,7 +15,7 @@ both **headless APIs** and **pre-built SwiftUI / UIKit components**.
 ### Swift Package Manager
 
 ```swift
-.package(url: "https://github.com/quickauthin/quickauth-sdk-ios", from: "0.1.0")
+.package(url: "https://github.com/quickauthin/quickauth-sdk-ios", from: "1.0.0")
 ```
 
 Then add `"QuickAuth"` to your target dependencies.
@@ -23,7 +23,7 @@ Then add `"QuickAuth"` to your target dependencies.
 ### CocoaPods
 
 ```ruby
-pod 'QuickAuthIn', '~> 0.1.0'
+pod 'QuickAuthIn', '~> 1.0.0'
 ```
 
 > Note: the pod is named `QuickAuthIn` on CocoaPods (the unsuffixed `QuickAuth` name was already taken by an unrelated library). Your Swift code still uses `import QuickAuth` — only the Podfile entry uses the suffixed name.
@@ -103,7 +103,12 @@ UIKit equivalent: `QuickAuthLoginButtonView`, `QuickAuthOTPTextField`.
 ```swift
 let session = try await QuickAuth.shared.auth.startOTP(phone: "+919876543210", channel: .auto)
 let result  = try await QuickAuth.shared.auth.verifyOTP(sessionId: session.sessionId, code: "123456")
-print(result.jwt)
+// result.verified == true, result.requestId == "req_…", result.message == "Verified successfully"
+//
+// Forward `requestId` to your backend, which confirms with QuickAuth via
+// GET /v1/auth/status?requestId=... (X-Client-Id / X-Client-Secret) and mints
+// its own session JWT against its own user table.
+// See https://quickauth.in/docs/backend
 ```
 
 ### 4. Combine OTP observer

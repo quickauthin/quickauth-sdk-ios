@@ -129,9 +129,13 @@ public struct QuickAuthLoginButton: View {
                 let result = try await QuickAuth.shared.auth.verifyOTP(sessionId: s.sessionId, code: code)
                 await MainActor.run {
                     self.verifying = false
-                    self.presentingOTP = false
-                    self.code = ""
-                    self.onSuccess(result.jwt)
+                    if result.verified {
+                        self.presentingOTP = false
+                        self.code = ""
+                        self.onSuccess(result.requestId)
+                    } else {
+                        self.errorText = result.message
+                    }
                 }
             } catch {
                 await MainActor.run {
