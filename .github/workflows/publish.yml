@@ -1,0 +1,117 @@
+name: Publish to CocoaPods + SPM
+
+# Manual trigger. Goes to Actions → "Publish to CocoaPods + SPM" → Run workflow
+# → enter the version (e.g. 1.0.0 or 1.0.1) → click Run.
+#
+# The workflow:
+#   1. Bumps the version in QuickAuthIn.podspec
+#   2. Runs `swift build` and `swift test` (catches typos / regressions before
+#      Trunk validation does)
+#   3. Commits the version bump
+#   4. Tags it as v<version> AND pushes — SPM consumers pick the SDK up via
+#      this git tag, so it MUST be pushed before pod trunk push runs (the
+#      pod's s.source points at the git tag)
+#   5. Runs `pod trunk push QuickAuthIn.podspec` — uploads to CocoaPods
+#
+# One-time setup (per repo):
+#   Settings → Secrets and variables → Actions → New repository secret:
+#     COCOAPODS_TRUNK_TOKEN  — the trunk session token. Get it by running
+#                              `pod trunk register quickauth@codelamda.com 'QuickAuth' --description='gha-runner'`
+#                              on a Mac, then `cat ~/.netrc | grep cocoapods.org -A 2`
+#                              to find the password line. That password IS the
+#                              trunk token.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (semver, e.g. 1.0.1)'
+        required: true
+        type: string
+
+concurrency:
+  group: publish-cocoapods
+  cancel-in-progress: false
+
+permissions:
+  contents: write   # commits + tags
+
+jobs:
+  publish:
+    # CocoaPods Trunk validation drives xcodebuild + simulator runtime —
+    # only macOS runners have the iOS SDK preinstalled.
+    runs-on: macos-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Validate version input
+        run: |
+          if ! [[ "${{ inputs.version }}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9\.]+)?$ ]]; then
+            echo "::error::Version '${{ inputs.version }}' is not a valid semver. Examples: 1.0.0, 1.2.3, 2.0.0-beta.1"
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Ruby (for CocoaPods)
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+          bundler-cache: false
+
+      - name: Install CocoaPods
+        run: gem install cocoapods --no-document
+
+      - name: Bump QuickAuthIn.podspec to ${{ inputs.version }}
+        run: |
+          # Replaces s.version = '<anything>' with the new value.
+          sed -i '' "s/s\.version[[:space:]]*=[[:space:]]*'[^']*'/s.version          = '${{ inputs.version }}'/" QuickAuthIn.podspec
+          echo "After bump:"
+          grep "s.version" QuickAuthIn.podspec
+
+      - name: swift build
+        run: swift build
+
+      - name: swift test
+        run: swift test
+
+      - name: Lint podspec (catches obvious problems before Trunk does)
+        # --skip-tests because the Trunk side will run them too; we already
+        # ran swift test above. --allow-warnings because Apple deprecation
+        # warnings are common across iOS SDK bumps.
+        run: pod spec lint QuickAuthIn.podspec --allow-warnings --skip-tests --quick
+
+      - name: Configure git author
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Commit version bump + tag + push
+        # MUST run before `pod trunk push` — the podspec's s.source points
+        # at `git tag v#{s.version}`, so Trunk fetches against that tag.
+        run: |
+          git add QuickAuthIn.podspec
+          git commit -m "chore(release): v${{ inputs.version }}"
+          git tag -a "v${{ inputs.version }}" -m "v${{ inputs.version }}"
+          git push origin HEAD --follow-tags
+
+      - name: Publish to CocoaPods Trunk
+        env:
+          COCOAPODS_TRUNK_TOKEN: ${{ secrets.COCOAPODS_TRUNK_TOKEN }}
+        run: |
+          pod trunk push QuickAuthIn.podspec --allow-warnings --skip-tests --skip-import-validation
+
+      - name: Summary
+        run: |
+          {
+            echo "## ✅ Published QuickAuthIn ${{ inputs.version }}"
+            echo ""
+            echo "- CocoaPods: https://cocoapods.org/pods/QuickAuthIn"
+            echo "- SPM consumers pick up via tag \`v${{ inputs.version }}\`"
+            echo "- Podfile: \`pod 'QuickAuthIn', '~> ${{ inputs.version }}'\`"
+            echo "- SPM: \`.package(url: \"https://github.com/quickauthin/quickauth-sdk-ios\", from: \"${{ inputs.version }}\")\`"
+          } >> $GITHUB_STEP_SUMMARY
