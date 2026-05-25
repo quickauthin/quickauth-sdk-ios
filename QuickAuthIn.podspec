@@ -1,7 +1,7 @@
 Pod::Spec.new do |s|
   s.name             = 'QuickAuthIn'
   s.module_name      = 'QuickAuth'
-  s.version          = '1.0.0'
+  s.version          = '1.1.0'
   s.summary          = 'QuickAuth iOS SDK — Phone OTP + WhatsApp marketing attribution.'
   s.description      = <<-DESC
 QuickAuth iOS SDK provides drop-in phone OTP authentication (SMS or WhatsApp),

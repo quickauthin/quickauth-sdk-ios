@@ -20,7 +20,7 @@ public typealias TokenProvider = () async throws -> String
 /// This matches the Twilio Verify pattern used by the web SDK.
 public struct Config {
 
-    public static let currentSDKVersion = "0.2.0"
+    public static let currentSDKVersion = "1.1.0"
 
     // MARK: Stored properties
 
@@ -35,6 +35,15 @@ public struct Config {
     /// this instead of immediately calling `onTokenExpiry` on the first
     /// request.
     public var initialToken: String?
+
+    /// Headless auth event handler. The SDK invokes this with a typed
+    /// `AuthEvent` as the auth lifecycle progresses (OTP sent, verified,
+    /// failed, error). One handler per `Config`; assign a new closure to
+    /// replace.
+    ///
+    /// Events are delivered asynchronously on the main queue so SwiftUI /
+    /// UIKit observers can update views directly without dispatch hops.
+    public var onAuthEvent: AuthEventHandler?
 
     // MARK: Unsafe escape hatch (trusted-enterprise only)
 
@@ -63,11 +72,13 @@ public struct Config {
     public init(
         apiBaseURL: URL = URL(string: "https://api.quickauth.in")!,
         onTokenExpiry: @escaping TokenProvider,
-        initialToken: String? = nil
+        initialToken: String? = nil,
+        onAuthEvent: AuthEventHandler? = nil
     ) {
         self.apiBaseURL = apiBaseURL
         self.onTokenExpiry = onTokenExpiry
         self.initialToken = initialToken
+        self.onAuthEvent = onAuthEvent
     }
 
     /// **Unsafe** alternate init for trusted-enterprise builds where the

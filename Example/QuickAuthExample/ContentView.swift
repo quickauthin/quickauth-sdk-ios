@@ -45,13 +45,15 @@ struct ContentView: View {
                 }
 
                 // -------- Headless mode --------
+                // The headless flow drives the UI through `onAuthEvent`,
+                // configured at app launch. Buttons here just kick the
+                // state machine; events update `sessionId` / `jwt` / `error`.
                 GroupBox("Headless mode") {
                     VStack(spacing: 12) {
                         Button("1. Send OTP") {
                             Task {
                                 do {
-                                    let s = try await QuickAuth.shared.auth.startOTP(phone: phone)
-                                    sessionId = s.sessionId
+                                    try await QuickAuth.shared.auth.initiate(phone: phone)
                                     error = ""
                                 } catch {
                                     self.error = error.localizedDescription
@@ -62,15 +64,14 @@ struct ContentView: View {
                         Button("2. Verify") {
                             Task {
                                 do {
-                                    let r = try await QuickAuth.shared.auth.verifyOTP(
-                                        sessionId: sessionId, code: code)
-                                    jwt = r.jwt; error = ""
+                                    try await QuickAuth.shared.auth.submitOtp(code)
+                                    error = ""
                                 } catch {
                                     self.error = error.localizedDescription
                                 }
                             }
                         }
-                        .disabled(sessionId.isEmpty || code.count < 6)
+                        .disabled(code.count < 6)
                     }.padding(.vertical, 4)
                 }
 

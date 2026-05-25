@@ -139,12 +139,19 @@ final class APIClientTests: XCTestCase {
         MockURLProtocol.requestHandler = { _ in
             let r = HTTPURLResponse(url: URL(string: "https://api.example.test/v1/sdk/auth/verify")!,
                                     statusCode: 200, httpVersion: nil, headerFields: nil)!
-            return (r, "{\"verified\":true,\"requestId\":\"req_abc\",\"message\":\"Verified successfully\"}".data(using: .utf8))
+            return (r, "{\"state\":\"VERIFIED\",\"verified\":true,\"requestId\":\"req_abc\",\"message\":\"Verified successfully\"}".data(using: .utf8))
         }
         struct Req: Encodable { let sessionId: String; let code: String }
+        struct VerifyResp: Decodable {
+            let state: String
+            let verified: Bool
+            let requestId: String
+            let message: String
+        }
         let api = makeClient(initialToken: "tkn")
-        let resp: OTPVerification = try await api.post(path: "/v1/sdk/auth/verify",
-                                                       body: Req(sessionId: "s1", code: "111111"))
+        let resp: VerifyResp = try await api.post(path: "/v1/sdk/auth/verify",
+                                                  body: Req(sessionId: "s1", code: "111111"))
+        XCTAssertEqual(resp.state, "VERIFIED")
         XCTAssertTrue(resp.verified)
         XCTAssertEqual(resp.requestId, "req_abc")
         XCTAssertEqual(resp.message, "Verified successfully")

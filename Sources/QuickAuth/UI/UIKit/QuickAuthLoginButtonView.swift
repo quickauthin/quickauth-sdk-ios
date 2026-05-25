@@ -39,19 +39,49 @@ public final class QuickAuthLoginButtonView: UIButton {
 
     @objc private func handleTap() {
         isEnabled = false
+        // Install a transient event handler that drives the UIAlert flow,
+        // preserving any pre-existing handler the host app has set.
+        let previousHandler = QuickAuth.shared.authEventHandler
+        QuickAuth.shared.setAuthEventHandler({ [weak self] event in
+            previousHandler?(event)
+            guard let self = self else { return }
+            switch event {
+            case .otpSent:
+                Task { @MainActor in
+                    self.isEnabled = true
+                    self.presentOTPEntry()
+                }
+            case .verified(let requestId, _):
+                Task { @MainActor in self.onSuccess?(requestId) }
+                QuickAuth.shared.setAuthEventHandler(previousHandler)
+            case .otpFailed(let message):
+                Task { @MainActor in
+                    self.onError?(NSError(domain: "QuickAuth", code: -1,
+                                          userInfo: [NSLocalizedDescriptionKey: message]))
+                }
+            case .error(_, let message):
+                Task { @MainActor in
+                    self.isEnabled = true
+                    self.onError?(NSError(domain: "QuickAuth", code: -1,
+                                          userInfo: [NSLocalizedDescriptionKey: message]))
+                }
+                QuickAuth.shared.setAuthEventHandler(previousHandler)
+            case .otpAutoRead:
+                break
+            }
+        })
         Task { @MainActor in
             do {
-                let session = try await QuickAuth.shared.auth.startOTP(phone: phone, channel: channel)
-                self.isEnabled = true
-                self.presentOTPEntry(sessionId: session.sessionId)
+                try await QuickAuth.shared.auth.initiate(phone: phone, channel: channel)
             } catch {
                 self.isEnabled = true
                 self.onError?(error)
+                QuickAuth.shared.setAuthEventHandler(previousHandler)
             }
         }
     }
 
-    private func presentOTPEntry(sessionId: String) {
+    private func presentOTPEntry() {
         guard let presenter = presenter ?? Self.topViewController() else { return }
         let alert = UIAlertController(
             title: "Enter OTP",
@@ -64,21 +94,10 @@ public final class QuickAuthLoginButtonView: UIButton {
             tf.placeholder = "123456"
         }
         alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        alert.addAction(UIAlertAction(title: "Verify", style: .default) { [weak self] _ in
-            guard let self = self,
-                  let code = alert.textFields?.first?.text, code.count >= 4 else { return }
+        alert.addAction(UIAlertAction(title: "Verify", style: .default) { _ in
+            guard let code = alert.textFields?.first?.text, code.count >= 4 else { return }
             Task { @MainActor in
-                do {
-                    let result = try await QuickAuth.shared.auth.verifyOTP(sessionId: sessionId, code: code)
-                    if result.verified {
-                        self.onSuccess?(result.requestId)
-                    } else {
-                        self.onError?(NSError(domain: "QuickAuth", code: -1,
-                                              userInfo: [NSLocalizedDescriptionKey: result.message]))
-                    }
-                } catch {
-                    self.onError?(error)
-                }
+                try? await QuickAuth.shared.auth.submitOtp(code)
             }
         })
         presenter.present(alert, animated: true)

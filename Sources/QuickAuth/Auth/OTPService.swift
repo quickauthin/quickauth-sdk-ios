@@ -1,6 +1,12 @@
 //
 //  OTPService.swift
-//  Phone OTP send/verify (SMS or WhatsApp) + WhatsApp login launcher.
+//  Lifecycle façade exposed at `QuickAuth.shared.auth`.
+//
+//  As of the headless-flow refactor, the core OTP / OneTap state machine
+//  lives in `AuthSession`. This service composes it with the auxiliary
+//  surface area that doesn't fit the state-machine model: an auto-read
+//  publisher (Combine) for SMS observers and the WhatsApp deep-link
+//  launcher.
 //
 
 import Foundation
@@ -17,81 +23,52 @@ public enum OTPChannel: String, Codable, Equatable {
     case auto
 }
 
-/// Returned by `startOTP`.
-public struct OTPSession: Decodable, Equatable {
-    public let sessionId: String
-    public let expiresIn: Int
-    public let channel: String?
-}
-
-/// Result of `verifyOTP`.
-///
-/// QuickAuth is a verification provider, not an identity provider. We tell
-/// you whether the phone was verified — you forward `requestId` to your own
-/// backend, which confirms server-to-server via
-/// `GET /v1/auth/status?requestId=...` (with `X-Client-Id` / `X-Client-Secret`)
-/// and mints its own session JWT against its own user table.
-///
-/// See https://quickauth.in/docs/backend
-public struct OTPVerification: Decodable, Equatable {
-    /// True iff the OTP matched and the phone is now verified.
-    public let verified: Bool
-    /// Opaque id — forward this to your backend for server-to-server confirmation.
-    public let requestId: String
-    /// Human-readable status, e.g. "Verified successfully".
-    public let message: String
-}
-
-/// Internal request types.
-struct StartOTPRequest: Encodable {
-    let phone: String
-    let channel: String
-}
-
-struct VerifyOTPRequest: Encodable {
-    let sessionId: String
-    let code: String
-}
-
 public final class OTPService {
 
-    private let api: APIClient
-    private let configProvider: () -> Config
+    /// Headless auth state machine — `initiate(phone:)`, `submitOtp(_:)`,
+    /// `reset(forgetDevice:)`. All outcomes flow via `Config.onAuthEvent`.
+    public let session: AuthSession
 
-    /// Subject to which an in-app OTP delivery (e.g. silent push observer or
-    /// WhatsApp-login JWT extraction) can publish a code for `observeOTP`.
+    /// Subject for code-observer integrations (e.g. SMS auto-read).
     private let codeSubject = PassthroughSubject<String, Never>()
 
     init(api: APIClient, config: @escaping () -> Config) {
-        self.api = api
-        self.configProvider = config
+        self.session = AuthSession(api: api, config: config)
     }
 
-    // MARK: - OTP
+    // MARK: - Headless flow (forwards to AuthSession)
 
-    /// Begin an OTP session. Returns `sessionId` to pass to `verifyOTP`.
-    @discardableResult
-    public func startOTP(phone: String, channel: OTPChannel = .auto) async throws -> OTPSession {
-        let body = StartOTPRequest(phone: phone, channel: channel.rawValue)
-        return try await api.post(path: "/v1/sdk/auth/initiate", body: body)
+    /// Begin an auth attempt. Emits `.otpSent` (show OTP input) or
+    /// `.verified` (OneTap fired, no input needed) via `onAuthEvent`.
+    public func initiate(phone: String, channel: OTPChannel = .auto) async throws {
+        try await session.initiate(phone: phone, channel: channel)
     }
 
-    /// Verify the user-entered OTP code. Returns a JWT on success.
-    @discardableResult
-    public func verifyOTP(sessionId: String, code: String) async throws -> OTPVerification {
-        let body = VerifyOTPRequest(sessionId: sessionId, code: code)
-        return try await api.post(path: "/v1/sdk/auth/verify", body: body)
+    /// Submit the user-entered OTP. Only valid after an `.otpSent` event.
+    public func submitOtp(_ code: String) async throws {
+        try await session.submitOtp(code)
     }
+
+    /// Reset the auth state machine. Pass `forgetDevice: true` on
+    /// user-initiated sign-out to also drop the persistent device token.
+    public func reset(forgetDevice: Bool = false) {
+        session.reset(forgetDevice: forgetDevice)
+    }
+
+    // MARK: - Auto-read observer (Combine)
 
     /// Combine publisher of OTP codes observed by the SDK
     /// (used by `QuickAuthOtpField` / `QuickAuthOTPTextField` to auto-fill).
+    /// Codes published here are also surfaced as `.otpAutoRead` events.
     public func observeOTP() -> AnyPublisher<String, Never> {
         codeSubject.eraseToAnyPublisher()
     }
 
-    /// Manually publish a code into the observer stream (e.g. from an APN handler).
+    /// Manually publish a code into the observer stream. Surfaces to both
+    /// the Combine publisher and the `onAuthEvent` stream.
     public func publishObservedCode(_ code: String) {
         codeSubject.send(code)
+        session.publishAutoReadCode(code)
     }
 
     // MARK: - WhatsApp login

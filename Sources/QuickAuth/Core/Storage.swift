@@ -13,6 +13,9 @@ enum Storage {
         static let consent     = "in.quickauth.sdk.consent"
         static let lastClickId = "in.quickauth.sdk.lastClickId"
         static let installId   = "in.quickauth.sdk.installId"
+        /// Persistent device token for OneTap (silent re-auth). Server-minted
+        /// on the first /initiate, replayed on every subsequent call.
+        static let deviceToken = "in.quickauth.sdk.deviceToken"
     }
 
     private static let suiteName = "in.quickauth.sdk"

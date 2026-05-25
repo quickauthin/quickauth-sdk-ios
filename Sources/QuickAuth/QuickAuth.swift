@@ -70,14 +70,31 @@ public final class QuickAuth {
         initialize(config: Config(onTokenExpiry: onTokenExpiry))
     }
 
+    /// Register / replace the headless auth event handler at runtime.
+    /// Pre-built components (`QuickAuthLoginButton`, `QuickAuthLoginButtonView`)
+    /// use this to install a transient handler for the duration of their
+    /// flow, then restore the previous one. Apps that want a single global
+    /// handler should pass it via `Config.onAuthEvent` at `initialize`.
+    public func setAuthEventHandler(_ handler: AuthEventHandler?) {
+        initLock.lock(); defer { initLock.unlock() }
+        config.onAuthEvent = handler
+    }
+
+    /// Current auth event handler, if any.
+    public var authEventHandler: AuthEventHandler? {
+        config.onAuthEvent
+    }
+
     /// Reset the SDK (test-only convenience). Clears Keychain & UserDefaults state.
     public func reset() {
         Storage.keychainDelete(key: Storage.Keys.publicKey)
+        Storage.keychainDelete(key: Storage.Keys.deviceToken)
         Storage.defaultsRemove(key: Storage.Keys.consent)
         Storage.defaultsRemove(key: Storage.Keys.lastClickId)
         Task { [apiClient] in
             await apiClient.tokenManager.invalidate()
         }
+        auth.reset(forgetDevice: true)
         config = QuickAuth.placeholderConfig()
         initialized = false
     }

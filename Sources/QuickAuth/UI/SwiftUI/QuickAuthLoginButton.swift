@@ -22,7 +22,6 @@ public struct QuickAuthLoginButton: View {
 
     @State private var loading = false
     @State private var presentingOTP = false
-    @State private var session: OTPSession?
     @State private var code: String = ""
     @State private var verifying = false
     @State private var errorText: String?
@@ -103,40 +102,64 @@ public struct QuickAuthLoginButton: View {
     private func startFlow() {
         loading = true
         errorText = nil
-        Task {
-            do {
-                let s = try await QuickAuth.shared.auth.startOTP(phone: phone, channel: channel)
-                await MainActor.run {
-                    self.session = s
+        // Install a transient event handler that drives the sheet. We
+        // restore any pre-existing handler when the flow terminates so
+        // QuickAuthLoginButton composes cleanly with apps that already
+        // listen on `onAuthEvent`.
+        let previousHandler = QuickAuth.shared.authEventHandler
+        QuickAuth.shared.setAuthEventHandler({ event in
+            previousHandler?(event)
+            switch event {
+            case .otpSent:
+                Task { @MainActor in
                     self.loading = false
                     self.presentingOTP = true
                 }
+            case .verified(let requestId, _):
+                Task { @MainActor in
+                    self.verifying = false
+                    self.loading = false
+                    self.presentingOTP = false
+                    self.code = ""
+                    self.onSuccess(requestId)
+                }
+                QuickAuth.shared.setAuthEventHandler(previousHandler)
+            case .otpFailed(let message):
+                Task { @MainActor in
+                    self.verifying = false
+                    self.errorText = message
+                }
+            case .error(_, let message):
+                Task { @MainActor in
+                    self.verifying = false
+                    self.loading = false
+                    self.errorText = message
+                }
+                QuickAuth.shared.setAuthEventHandler(previousHandler)
+            case .otpAutoRead:
+                break
+            }
+        })
+        Task {
+            do {
+                try await QuickAuth.shared.auth.initiate(phone: phone, channel: channel)
             } catch {
                 await MainActor.run {
                     self.loading = false
                     self.onError(error)
                 }
+                QuickAuth.shared.setAuthEventHandler(previousHandler)
             }
         }
     }
 
     private func verify() {
-        guard let s = session, code.count == 6 else { return }
+        guard code.count == 6 else { return }
         verifying = true
         errorText = nil
         Task {
             do {
-                let result = try await QuickAuth.shared.auth.verifyOTP(sessionId: s.sessionId, code: code)
-                await MainActor.run {
-                    self.verifying = false
-                    if result.verified {
-                        self.presentingOTP = false
-                        self.code = ""
-                        self.onSuccess(result.requestId)
-                    } else {
-                        self.errorText = result.message
-                    }
-                }
+                try await QuickAuth.shared.auth.submitOtp(code)
             } catch {
                 await MainActor.run {
                     self.verifying = false
