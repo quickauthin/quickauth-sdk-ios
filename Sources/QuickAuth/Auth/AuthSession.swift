@@ -288,6 +288,7 @@ public final class AuthSession {
             case .notInitialized: return "NOT_INITIALIZED"
             case .consentRequired: return "CONSENT_REQUIRED"
             case .invalidResponse: return "INVALID_RESPONSE"
+            case .invalidConfiguration: return "INVALID_CONFIGURATION"
             }
         }
         return "UNKNOWN_ERROR"

@@ -6,7 +6,8 @@
 import Foundation
 
 /// Top-level facade. Use `QuickAuth.shared` after calling
-/// `initialize(onTokenExpiry:)` (or `initialize(config:)`).
+/// `initialize(publishableKey:)`, `initialize(onTokenExpiry:)`, or
+/// `initialize(config:)`.
 public final class QuickAuth {
 
     /// Shared singleton. Call `initialize` once on app launch.
@@ -52,7 +53,7 @@ public final class QuickAuth {
             await apiClient.tokenManager.invalidate()
         }
 
-        if config.unsafeDirectClientId != nil, config.unsafeDirectClientSecret != nil {
+        if config.isUnsafeDirect {
             print("[QuickAuth] ⚠️ UNSAFE mode: client_secret embedded; for trusted-enterprise only")
         }
 
@@ -68,6 +69,31 @@ public final class QuickAuth {
     /// `POST /v1/sdk/session` with your `client_secret`).
     public func initialize(onTokenExpiry: @escaping TokenProvider) {
         initialize(config: Config(onTokenExpiry: onTokenExpiry))
+    }
+
+    /// Convenience initializer for publishable-key (zero-backend) mode.
+    ///
+    /// Takes both modes as optionals rather than offering a key-only overload
+    /// so that the "exactly one auth mode" rule is enforced at the call site
+    /// people actually reach for, instead of only on the `Config` path that a
+    /// quick-start reader will never open.
+    ///
+    /// - Throws: `QuickAuthError.invalidConfiguration` if neither or both
+    ///   modes are supplied.
+    public func initialize(
+        publishableKey: String?,
+        onTokenExpiry: TokenProvider? = nil,
+        apiBaseURL: URL = URL(string: "https://api.quickauth.in")!,
+        initialToken: String? = nil,
+        onAuthEvent: AuthEventHandler? = nil
+    ) throws {
+        initialize(config: try Config(
+            apiBaseURL: apiBaseURL,
+            publishableKey: publishableKey,
+            onTokenExpiry: onTokenExpiry,
+            initialToken: initialToken,
+            onAuthEvent: onAuthEvent
+        ))
     }
 
     /// Register / replace the headless auth event handler at runtime.
