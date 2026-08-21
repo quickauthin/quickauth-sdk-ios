@@ -248,9 +248,16 @@ public final class APIClient {
         self.session = resolvedSession
         self.tokenManager = tokenManager ?? TokenManager(config: config, session: resolvedSession)
 
-        let enc = JSONEncoder()
-        enc.keyEncodingStrategy = .convertToSnakeCase
-        self.encoder = enc
+        // No key strategy. The backend binds camelCase — sessionId, deviceToken, deviceInfo —
+        // and .convertToSnakeCase rewrote every one of them on the way out. sessionId is
+        // @NotBlank on the verify DTO, so it arrived null and the request was rejected 400
+        // before reaching any logic: verify could not succeed on iOS at all. deviceToken and
+        // deviceInfo were dropped the same way, which is why OneTap never fired here either.
+        //
+        // The decoder below keeps .convertFromSnakeCase deliberately. It is a no-op on the
+        // camelCase the backend actually returns, and removing it is a second change with no
+        // benefit.
+        self.encoder = JSONEncoder()
 
         let dec = JSONDecoder()
         dec.keyDecodingStrategy = .convertFromSnakeCase
