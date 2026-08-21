@@ -45,7 +45,7 @@ final class OTPServiceTests: XCTestCase {
         MockURLProtocol.requestHandler = { _ in
             let r = HTTPURLResponse(url: URL(string: "https://api.example.test/v1/sdk/auth/initiate")!,
                                     statusCode: 200, httpVersion: nil, headerFields: nil)!
-            return (r, "{\"state\":\"OTP_SENT\",\"session_id\":\"sess_1\",\"expires_in\":300,\"device_token\":\"dtok_x\"}".data(using: .utf8))
+            return (r, "{\"state\":\"OTP_SENT\",\"sessionId\":\"sess_1\",\"expiresIn\":300,\"deviceToken\":\"dtok_x\"}".data(using: .utf8))
         }
         let svc = makeService(onAuthEvent: { [weak self] in self?.capturedEvents.append($0) })
 
@@ -75,7 +75,7 @@ final class OTPServiceTests: XCTestCase {
         MockURLProtocol.requestHandler = { _ in
             let r = HTTPURLResponse(url: URL(string: "https://api.example.test/v1/sdk/auth/initiate")!,
                                     statusCode: 200, httpVersion: nil, headerFields: nil)!
-            return (r, "{\"state\":\"VERIFIED\",\"session_id\":\"req_verified\",\"expires_in\":300,\"device_token\":\"dtok_x\"}".data(using: .utf8))
+            return (r, "{\"state\":\"VERIFIED\",\"sessionId\":\"req_verified\",\"expiresIn\":300,\"deviceToken\":\"dtok_x\"}".data(using: .utf8))
         }
         let svc = makeService(onAuthEvent: { [weak self] in self?.capturedEvents.append($0) })
 
@@ -97,11 +97,11 @@ final class OTPServiceTests: XCTestCase {
             if responseCount == 1 {
                 let r = HTTPURLResponse(url: URL(string: "https://api.example.test/v1/sdk/auth/initiate")!,
                                         statusCode: 200, httpVersion: nil, headerFields: nil)!
-                return (r, "{\"state\":\"OTP_SENT\",\"session_id\":\"sess_1\",\"expires_in\":300,\"device_token\":\"dtok_v\"}".data(using: .utf8))
+                return (r, "{\"state\":\"OTP_SENT\",\"sessionId\":\"sess_1\",\"expiresIn\":300,\"deviceToken\":\"dtok_v\"}".data(using: .utf8))
             }
             let r = HTTPURLResponse(url: URL(string: "https://api.example.test/v1/sdk/auth/verify")!,
                                     statusCode: 200, httpVersion: nil, headerFields: nil)!
-            return (r, "{\"state\":\"VERIFIED\",\"verified\":true,\"request_id\":\"req_abc\",\"message\":\"Verified successfully\"}".data(using: .utf8))
+            return (r, "{\"state\":\"VERIFIED\",\"verified\":true,\"requestId\":\"req_abc\",\"message\":\"Verified successfully\"}".data(using: .utf8))
         }
         let svc = makeService(onAuthEvent: { [weak self] in self?.capturedEvents.append($0) })
 
@@ -116,9 +116,13 @@ final class OTPServiceTests: XCTestCase {
         let verifyReq = MockURLProtocol.capturedRequests[1]
         let body = try XCTUnwrap(verifyReq.httpBody)
         let dict = try JSONSerialization.jsonObject(with: body) as? [String: Any]
-        XCTAssertEqual(dict?["session_id"] as? String, "sess_1")
+        // camelCase, because that is what the backend binds. These asserted snake_case and
+        // so kept a broken SDK green: sessionId is @NotBlank on the verify DTO, so the real
+        // server rejected every one of these requests 400 while the suite passed.
+        XCTAssertEqual(dict?["sessionId"] as? String, "sess_1")
         XCTAssertEqual(dict?["code"] as? String, "123456")
-        XCTAssertEqual(dict?["device_token"] as? String, "dtok_v")
+        XCTAssertEqual(dict?["deviceToken"] as? String, "dtok_v")
+        XCTAssertNil(dict?["session_id"], "must not send snake_case — the backend ignores it")
     }
 
     func testSubmitOtpEmitsOtpFailedOnWrongCode() async throws {
@@ -128,11 +132,11 @@ final class OTPServiceTests: XCTestCase {
             if responseCount == 1 {
                 let r = HTTPURLResponse(url: URL(string: "https://api.example.test/v1/sdk/auth/initiate")!,
                                         statusCode: 200, httpVersion: nil, headerFields: nil)!
-                return (r, "{\"state\":\"OTP_SENT\",\"session_id\":\"sess_1\",\"expires_in\":300,\"device_token\":\"dtok_v\"}".data(using: .utf8))
+                return (r, "{\"state\":\"OTP_SENT\",\"sessionId\":\"sess_1\",\"expiresIn\":300,\"deviceToken\":\"dtok_v\"}".data(using: .utf8))
             }
             let r = HTTPURLResponse(url: URL(string: "https://api.example.test/v1/sdk/auth/verify")!,
                                     statusCode: 200, httpVersion: nil, headerFields: nil)!
-            return (r, "{\"state\":\"OTP_FAILED\",\"verified\":false,\"request_id\":\"sess_1\",\"message\":\"Invalid OTP. 2 attempt(s) remaining.\"}".data(using: .utf8))
+            return (r, "{\"state\":\"OTP_FAILED\",\"verified\":false,\"requestId\":\"sess_1\",\"message\":\"Invalid OTP. 2 attempt(s) remaining.\"}".data(using: .utf8))
         }
         let svc = makeService(onAuthEvent: { [weak self] in self?.capturedEvents.append($0) })
 
@@ -157,7 +161,7 @@ final class OTPServiceTests: XCTestCase {
         MockURLProtocol.requestHandler = { _ in
             let r = HTTPURLResponse(url: URL(string: "https://api.example.test/v1/sdk/auth/initiate")!,
                                     statusCode: 200, httpVersion: nil, headerFields: nil)!
-            return (r, "{\"state\":\"OTP_SENT\",\"session_id\":\"sess_1\",\"expires_in\":300,\"device_token\":\"dtok_keep\"}".data(using: .utf8))
+            return (r, "{\"state\":\"OTP_SENT\",\"sessionId\":\"sess_1\",\"expiresIn\":300,\"deviceToken\":\"dtok_keep\"}".data(using: .utf8))
         }
         let svc = makeService()
 
