@@ -32,11 +32,33 @@ pod 'QuickAuthIn', '~> 1.0.0'
 
 ## Authentication model
 
-The SDK never embeds your `client_secret`. Instead — same pattern Twilio Verify
-uses for its mobile SDKs — your **backend** mints a short-lived (10 minute)
-`sessionToken` by calling QuickAuth server-to-server, and the SDK calls a
-closure (`onTokenExpiry`) you provide to fetch one whenever it needs a fresh
-token.
+The SDK never embeds your `client_secret`. Pick **exactly one** of two modes —
+supplying both, or neither, throws at `initialize`.
+
+### Mode 1 — publishable key (zero backend)
+
+Pass a `pk_live_…` / `pk_test_…` key. The SDK sends it as `X-QuickAuth-Key` on
+every call, plus `X-QuickAuth-Bundle: <your bundle id>` so the key can be
+locked to your app on the QuickAuth dashboard. No token endpoint, no backend.
+
+```swift
+try QuickAuth.shared.initialize(publishableKey: "pk_live_xxx")
+```
+
+A publishable key is safe to ship in the binary: unlike the client secret it is
+scoped to OTP initiate/verify, rate-limited, revocable on its own, and
+app-lockable. Turn app-lock on once you have registered your bundle id —
+until then the key is usable from any app that has it.
+
+> **Availability:** publishable-key support is not live on the production API
+> yet. Until the backend change ships, this mode returns `401`; use mode 2.
+
+### Mode 2 — session token (extra hardened)
+
+Same pattern Twilio Verify uses for its mobile SDKs: your **backend** mints a
+short-lived (10 minute) `sessionToken` by calling QuickAuth server-to-server,
+and the SDK calls a closure (`onTokenExpiry`) you provide to fetch one whenever
+it needs a fresh token.
 
 ```
 ┌────────────┐  /api/quickauth-token   ┌──────────────────┐  POST /v1/sdk/session

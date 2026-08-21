@@ -1,7 +1,7 @@
 //
 //  APIClient.swift
-//  URLSession-based JSON client with ephemeral session-token auth,
-//  idempotency keys, retries, and DI for tests.
+//  URLSession-based JSON client with publishable-key or ephemeral
+//  session-token auth, idempotency keys, retries, and DI for tests.
 //
 
 import Foundation
@@ -15,6 +15,7 @@ public enum QuickAuthError: Error, LocalizedError, Equatable {
     case network(String)
     case decoding(String)
     case tokenProviderFailed(String)
+    case invalidConfiguration(String)
 
     public var errorDescription: String? {
         switch self {
@@ -25,6 +26,7 @@ public enum QuickAuthError: Error, LocalizedError, Equatable {
         case .network(let m):           return "Network error: \(m)"
         case .decoding(let m):          return "Decoding error: \(m)"
         case .tokenProviderFailed(let m): return "onTokenExpiry failed: \(m)"
+        case .invalidConfiguration(let m): return "Invalid QuickAuth configuration: \(m)"
         }
     }
 }
@@ -142,8 +144,16 @@ public actor TokenManager {
             )
         }
 
+        // Publishable-key mode never lands here — APIClient skips the
+        // TokenManager entirely — so a missing provider at this point means
+        // the app called an API before initialize(), not that it chose the
+        // keyed mode.
+        guard let provider = config.onTokenExpiry else {
+            throw QuickAuthError.notInitialized
+        }
+
         do {
-            let token = try await config.onTokenExpiry()
+            let token = try await provider()
             if token.isEmpty {
                 throw QuickAuthError.tokenProviderFailed("empty token")
             }
@@ -266,10 +276,11 @@ public final class APIClient {
 
     /// POST a JSON body and decode the response.
     ///
-    /// - Parameter requireAuth: when `true` (default) the SDK will fetch a
-    ///   `sessionToken` via the TokenManager and attach it as a Bearer
-    ///   header. On HTTP 401 the token is invalidated and the request is
-    ///   retried exactly once.
+    /// - Parameter requireAuth: when `true` (default) the request is
+    ///   authenticated. In publishable-key mode that means `X-QuickAuth-Key`
+    ///   (plus `X-QuickAuth-Bundle` when available); otherwise the SDK fetches
+    ///   a `sessionToken` via the TokenManager and attaches it as a Bearer
+    ///   header, and on HTTP 401 invalidates the token and retries once.
     public func post<Body: Encodable, Response: Decodable>(
         path: String,
         body: Body,
@@ -297,7 +308,16 @@ public final class APIClient {
             req.timeoutInterval = cfg.requestTimeout
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
             req.setValue("application/json", forHTTPHeaderField: "Accept")
-            if let token = token {
+            if cfg.isPublishableKeyMode {
+                // The two modes are mutually exclusive on the wire, not merely
+                // by preference: sending both credentials would let a stale
+                // bearer token decide the request's identity and silently
+                // outrank the key the caller actually configured.
+                req.setValue(cfg.publishableKey, forHTTPHeaderField: "X-QuickAuth-Key")
+                if let bundleId = Self.appBundleIdentifier() {
+                    req.setValue(bundleId, forHTTPHeaderField: "X-QuickAuth-Bundle")
+                }
+            } else if let token = token {
                 req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
             }
             req.setValue("ios-sdk/\(cfg.sdkVersion)", forHTTPHeaderField: "X-QuickAuth-SDK")
@@ -307,21 +327,58 @@ public final class APIClient {
         }
 
         var token: String? = nil
-        if requireAuth {
+        // Not just an optimisation: in publishable-key mode there is no token
+        // provider to call, so consulting the TokenManager would throw
+        // .notInitialized before the request ever left the device.
+        if requireAuth && !cfg.isPublishableKeyMode {
             token = try await tokenManager.getToken()
         }
         let request = makeRequest(token: token)
 
         do {
             return try await sendWithRetry(request: request, retriesLeft: cfg.maxRetries)
-        } catch QuickAuthError.http(let status, _) where status == 401 && requireAuth {
+        } catch QuickAuthError.http(let status, _) where status == 401 && requireAuth && !cfg.isPublishableKeyMode {
             // Token may have been revoked server-side. Force-refresh and
-            // retry exactly once.
+            // retry exactly once. A 401 in publishable-key mode is terminal —
+            // the key is a static credential, so replaying the identical
+            // request would only spend another rate-limit slot.
             await tokenManager.invalidate()
             let fresh = try await tokenManager.getToken()
             let retried = makeRequest(token: fresh)
             return try await sendWithRetry(request: retried, retriesLeft: cfg.maxRetries)
         }
+    }
+
+    // MARK: App identity
+
+    /// Test seam for `appBundleIdentifier()`. Under `swift test` the host
+    /// bundle has no identifier at all, so the real value is useless as a
+    /// fixture and both the present and missing paths need to be driveable.
+    static var bundleIdentifierOverride: (() -> String?)?
+
+    /// Best-effort capture of the host app's bundle identifier, sent as
+    /// `X-QuickAuth-Bundle` so the backend can app-lock a publishable key.
+    ///
+    /// This must never throw or trap. `Bundle.main.bundleIdentifier` is nil in
+    /// several legitimate hosts (unit-test runners, some command-line and
+    /// app-extension contexts), and an auth SDK that crashes or fails the call
+    /// because it could not name itself is worse than one that omits a header.
+    ///
+    /// The omission is not free, though: the backend's app-lock **fails
+    /// closed**. Once app-lock is enabled for a key, a request with no bundle
+    /// header cannot match any registered app and is rejected — and if the key
+    /// is enabled with an empty app list, every request is rejected. So
+    /// omitting the header is only safe while app-lock is off, which is why
+    /// this stays best-effort rather than becoming a hard precondition: the
+    /// day app-lock is switched on, the fix belongs in the customer's app
+    /// registration, not in a client-side crash.
+    static func appBundleIdentifier() -> String? {
+        // The seam swaps the *source* only; the emptiness check below stays on
+        // the shared path so tests cannot pass through a validation the real
+        // Bundle.main lookup is subject to.
+        let raw = (bundleIdentifierOverride ?? { Bundle.main.bundleIdentifier })()
+        guard let id = raw, !id.isEmpty else { return nil }
+        return id
     }
 
     private func sendWithRetry<Response: Decodable>(request: URLRequest, retriesLeft: Int) async throws -> Response {
