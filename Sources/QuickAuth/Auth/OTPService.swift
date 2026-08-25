@@ -44,6 +44,15 @@ public final class OTPService {
         try await session.initiate(phone: phone, channel: channel)
     }
 
+    /// Send the code again, to the number the current attempt is already for.
+    ///
+    /// Takes no phone number deliberately: passing one again is an opportunity to pass a
+    /// different one by accident, which would start a separate transaction and leave the user
+    /// holding two codes, only one of which works.
+    public func resendOtp() async throws {
+        try await session.resendOtp()
+    }
+
     /// Submit the user-entered OTP. Only valid after an `.otpSent` event.
     public func submitOtp(_ code: String) async throws {
         try await session.submitOtp(code)
