@@ -7,12 +7,33 @@ import Foundation
 
 final class MockURLProtocol: URLProtocol {
 
-    static var requestHandler: ((URLRequest) throws -> (HTTPURLResponse, Data?))?
-    static private(set) var capturedRequests: [URLRequest] = []
+    // Requests are loaded on URLSession's own threads, and a test that triggers
+    // work it does not await (auto-submit) can have one in flight while the next
+    // test's setUp resets these. Unsynchronised, that is a data race on a Swift
+    // Array — which showed up as an intermittent SIGSEGV in the whole-suite run,
+    // not as a test failure.
+    private static let lock = NSLock()
+    private static var _requestHandler: ((URLRequest) throws -> (HTTPURLResponse, Data?))?
+    private static var _capturedRequests: [URLRequest] = []
+
+    static var requestHandler: ((URLRequest) throws -> (HTTPURLResponse, Data?))? {
+        get { lock.lock(); defer { lock.unlock() }; return _requestHandler }
+        set { lock.lock(); _requestHandler = newValue; lock.unlock() }
+    }
+
+    static var capturedRequests: [URLRequest] {
+        lock.lock(); defer { lock.unlock() }; return _capturedRequests
+    }
+
+    private static func capture(_ request: URLRequest) {
+        lock.lock(); _capturedRequests.append(request); lock.unlock()
+    }
 
     static func reset() {
-        requestHandler = nil
-        capturedRequests = []
+        lock.lock()
+        _requestHandler = nil
+        _capturedRequests = []
+        lock.unlock()
     }
 
     override class func canInit(with request: URLRequest) -> Bool { true }
@@ -34,7 +55,7 @@ final class MockURLProtocol: URLProtocol {
             }
             captured.httpBody = data
         }
-        Self.capturedRequests.append(captured)
+        Self.capture(captured)
 
         guard let handler = Self.requestHandler else {
             client?.urlProtocol(self, didFailWithError: NSError(domain: "MockURLProtocol", code: -1))

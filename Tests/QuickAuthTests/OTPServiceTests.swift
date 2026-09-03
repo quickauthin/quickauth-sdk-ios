@@ -6,6 +6,10 @@ import XCTest
 import Combine
 @testable import QuickAuth
 
+/// `@MainActor` because `capturedEvents` is appended from the main queue by the
+/// event handler and read here: off the main actor those two race, which shows
+/// up as a crash in the test process rather than a failing assertion.
+@MainActor
 final class OTPServiceTests: XCTestCase {
 
     private var session: URLSession!
@@ -177,7 +181,7 @@ final class OTPServiceTests: XCTestCase {
             exp.fulfill()
         }.store(in: &cancellables)
 
-        svc.publishObservedCode("987654")
+        svc.publishAutoReadCode("987654")
 
         wait(for: [exp], timeout: 1.0)
         XCTAssertEqual(received, "987654")
