@@ -11,6 +11,16 @@ public final class QuickAuthOTPTextField: UITextField {
     public var digitCount: Int = 6
     public var onCodeFilled: ((String) -> Void)?
 
+    /// Forward codes the **system** fills in (the "From Messages" keyboard
+    /// suggestion) to `QuickAuth.shared.auth.publishAutoReadCode(_:)`, which is
+    /// what makes `.otpAutoRead` and `autoSubmit` work on iOS — the OS never
+    /// tells the SDK directly. Set `false` to forward it yourself.
+    public var forwardsAutofillToQuickAuth: Bool = true
+
+    /// Length before the current edit, so a code that appeared all at once can
+    /// be told apart from one the user typed.
+    private var previousLength = 0
+
     public init(digitCount: Int = 6) {
         self.digitCount = digitCount
         super.init(frame: .zero)
@@ -35,9 +45,16 @@ public final class QuickAuthOTPTextField: UITextField {
         let digits = (text ?? "").filter { $0.isNumber }
         let trimmed = String(digits.prefix(digitCount))
         if trimmed != text { text = trimmed }
-        if trimmed.count == digitCount {
-            onCodeFilled?(trimmed)
+        let grew = trimmed.count - previousLength
+        previousLength = trimmed.count
+        guard trimmed.count == digitCount else { return }
+
+        // Only a jump of more than one digit is the OS (or a paste) filling the
+        // field; a typed code arrives a digit at a time and is not an auto-read.
+        if forwardsAutofillToQuickAuth, grew > 1, QuickAuth.shared.isInitialized {
+            QuickAuth.shared.auth.publishAutoReadCode(trimmed)
         }
+        onCodeFilled?(trimmed)
     }
 }
 #endif
