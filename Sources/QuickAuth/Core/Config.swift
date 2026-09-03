@@ -20,7 +20,15 @@ public typealias TokenProvider = () async throws -> String
 /// This matches the Twilio Verify pattern used by the web SDK.
 public struct Config {
 
-    public static let currentSDKVersion = "1.1.0"
+    /// The one place the SDK version is written down.
+    ///
+    /// `QuickAuthIn.podspec` parses this literal at pod-install time rather
+    /// than declaring its own, so the number in `X-QuickAuth-SDK`, the one in
+    /// the fingerprint user-agent and the one CocoaPods publishes cannot drift
+    /// apart. Changing the release version means editing this line and nothing
+    /// else — keep it a plain double-quoted literal on one line, because the
+    /// podspec's regex reads exactly that shape.
+    public static let currentSDKVersion = "1.2.0"
 
     // MARK: Stored properties
 
