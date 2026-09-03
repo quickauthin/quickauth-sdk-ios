@@ -15,7 +15,7 @@ both **headless APIs** and **pre-built SwiftUI / UIKit components**.
 ### Swift Package Manager
 
 ```swift
-.package(url: "https://github.com/quickauthin/quickauth-sdk-ios", from: "1.0.0")
+.package(url: "https://github.com/quickauthin/quickauth-sdk-ios", from: "1.2.0")
 ```
 
 Then add `"QuickAuth"` to your target dependencies.
@@ -23,7 +23,7 @@ Then add `"QuickAuth"` to your target dependencies.
 ### CocoaPods
 
 ```ruby
-pod 'QuickAuthIn', '~> 1.0.0'
+pod 'QuickAuthIn', '~> 1.2'
 ```
 
 > Note: the pod is named `QuickAuthIn` on CocoaPods (the unsuffixed `QuickAuth` name was already taken by an unrelated library). Your Swift code still uses `import QuickAuth` — only the Podfile entry uses the suffixed name.
@@ -100,26 +100,90 @@ UIKit equivalent: `QuickAuthLoginButtonView`, `QuickAuthOTPTextField`.
 
 ### 3. Headless mode (your own UI)
 
-```swift
-let session = try await QuickAuth.shared.auth.startOTP(phone: "+919876543210", channel: .auto)
-let result  = try await QuickAuth.shared.auth.verifyOTP(sessionId: session.sessionId, code: "123456")
-// result.verified == true, result.requestId == "req_…", result.message == "Verified successfully"
-//
-// Forward `requestId` to your backend, which confirms with QuickAuth via
-// GET /v1/auth/status?requestId=... (X-Client-Id / X-Client-Secret) and mints
-// its own session JWT against its own user table.
-// See https://quickauth.in/docs/backend
-```
-
-### 4. Combine OTP observer
+Every outcome — sent, auto-read, verified, rejected, failed — arrives on one
+typed event stream. Register the handler once, then drive the state machine:
 
 ```swift
-QuickAuth.shared.auth.observeOTP().sink { code in
-    self.code = code
+QuickAuth.shared.setAuthEventHandler { event in
+    switch event {
+    case .otpSent(let sessionId, let channel, let expiresIn): showOtpInput()
+    case .otpAutoRead(let code):                              prefill(code)
+    case .verified(let requestId, _):                         finishLogin(requestId)
+    case .otpFailed(let message):                             showError(message)
+    case .error(let code, let message):                       showError(message)
+    }
 }
+
+try await QuickAuth.shared.auth.initiate(phone: "+919876543210", channel: .auto)
+try await QuickAuth.shared.auth.submitOtp("123456")
 ```
 
-### 5. WhatsApp login
+Forward `requestId` to your backend, which confirms it with QuickAuth via
+`GET /v1/auth/status?requestId=…` (`X-Client-Id` / `X-Client-Secret`) and mints
+its own session JWT against its own user table. See
+<https://quickauth.in/docs/backend>.
+
+Each `initiate` supersedes the previous attempt, and produces at most one
+terminal event (`.verified` / `.otpFailed` / `.error`) for that attempt.
+
+### 4. Resending
+
+```swift
+try await QuickAuth.shared.auth.resendOtp()
+```
+
+It takes **no phone number** on purpose: it resends to the number the live
+attempt is already for, carrying that attempt's channel and `autoSubmit`
+setting. Passing the number again is an opportunity to pass a different one by
+accident, which starts a second transaction and leaves the user holding two
+codes, only one of which works.
+
+Within your expiry window the backend returns the *same* code and pushes the
+expiry forward; past it, a fresh one. With no attempt in flight the call throws
+`QuickAuthError.invalidState` — a resend button should only exist after a code
+has been sent.
+
+### 5. Auto-read and `autoSubmit`
+
+iOS gives an SDK no way to observe an inbound SMS. Autofill is done by the OS,
+which offers the code as a keyboard suggestion straight into any field with
+`textContentType = .oneTimeCode` — **the SDK is never told**. So the bridge is
+explicit: hand the code back.
+
+```swift
+// Anything that learns the code — your text field, a push payload — feeds it in:
+QuickAuth.shared.auth.publishAutoReadCode(code)
+```
+
+The bundled fields (`QuickAuthOtpField`, `QuickAuthOTPTextField`) do this for
+you, and only for codes that arrive *all at once* — a code the user typed one
+digit at a time is not an auto-read. Set `forwardsAutofillToQuickAuth = false`
+to forward it yourself.
+
+Ask `initiate` to verify what it reads:
+
+```swift
+try await QuickAuth.shared.auth.initiate(phone: phone, autoSubmit: true)
+```
+
+- **Off by default** — submitting on the user's behalf is a surprise unless they
+  asked for it.
+- **Armed by `initiate` itself.** You do not have to subscribe to anything;
+  `.otpAutoRead` and auto-submission work with no subscriber present.
+- **One submit per attempt.** The same code can reach the SDK twice (an SMS copy
+  and a WhatsApp copy, or a field that fires twice). The second would verify a
+  code the server has already consumed — a failure landing *after* a success —
+  so a one-shot latch allows exactly one, reset on the next `initiate` or
+  `resendOtp`.
+
+A Combine publisher of the same codes is available for callers who prefer it —
+strictly optional, and subscribing does not double the events:
+
+```swift
+QuickAuth.shared.auth.observeOTP().sink { code in self.code = code }
+```
+
+### 6. WhatsApp login
 
 ```swift
 QuickAuth.shared.auth.startWhatsAppLogin(
@@ -136,7 +200,14 @@ Handle the return URL in your app:
 }
 ```
 
-### 6. Attribution & conversions
+Or via the facade's WhatsApp surface, which also parses the return URL:
+
+```swift
+QuickAuth.shared.whatsapp.open(businessNumber: "+919574980048")
+if QuickAuth.shared.whatsapp.isReturnURL(url) { … }
+```
+
+### 7. Attribution & conversions
 
 ```swift
 try await QuickAuth.shared.attribution.captureLaunch(url: launchURL)
@@ -252,6 +323,21 @@ detect this and log a DEBUG warning if absent.
 
 ## Privacy
 
+### Privacy manifest
+
+The SDK ships `PrivacyInfo.xcprivacy` (SPM resource + CocoaPods resource
+bundle), as App Store review requires from third-party SDKs. It declares the
+phone number, device identifiers and conversion events the SDK sends, and the
+required-reason code for its `UserDefaults` access (`CA92.1`).
+
+It declares `NSPrivacyTracking = false` and lists **no** tracking domains,
+because the SDK never reads the IDFA unless your app has already obtained ATT
+authorisation, and because `api.quickauth.in` also serves OTP send/verify —
+listing it as a tracking domain would have iOS block *authentication* for every
+user who has not granted ATT. If your use of QuickAuth attribution is part of an
+ad-measurement programme, that determination belongs in your own app's manifest
+and App Privacy answers.
+
 ### App Tracking Transparency
 The SDK respects ATT. It **never prompts** for tracking on its own. The
 fingerprint sent for deferred-deep-link match only includes IDFA when
@@ -277,7 +363,12 @@ are required for authentication.
 | Mode | When to use | API |
 | --- | --- | --- |
 | **Component** | Standard login screens; want brand polish for free | `QuickAuthLoginButton`, `QuickAuthOtpField`, UIKit equivalents |
-| **Headless** | Custom UI; multi-step flows; non-standard layouts | `QuickAuth.shared.auth.startOTP(...)`, `verifyOTP(...)`, `observeOTP()` |
+| **Headless** | Custom UI; multi-step flows; non-standard layouts | `QuickAuth.shared.auth.initiate(...)`, `submitOtp(...)`, `resendOtp()`, `publishAutoReadCode(_:)` |
+
+## Facade surface
+
+`QuickAuth.shared` exposes `isInitialized`, `config`, `tokenManager`, `consent`,
+`auth`, `attribution`, `whatsapp`, `setAuthEventHandler(_:)` and `reset()`.
 
 ---
 
@@ -312,7 +403,20 @@ Tests use a `URLProtocol` mock — no live network required. Covers:
   unsafe-direct mint)
 - Consent gate (attribution & conversion blocked when consent is `false`)
 - Fingerprint determinism + snake_case wire format
-- OTP service (start/verify body shapes, JWT parsing, observer publisher)
+- OTP service (initiate/verify body shapes, event sequences, observer publisher)
+- `resendOtp` (replays phone + channel + `autoSubmit`; throws with no attempt;
+  cleared by `reset`)
+- `autoSubmit` (off by default, fires with no subscriber present, one-shot latch,
+  re-armed by a resend)
+- Packaging (podspec derives its version from `Config.currentSDKVersion`;
+  privacy manifest ships and parses)
+
+## Releasing
+
+The version lives in exactly one place: `Config.currentSDKVersion`. The podspec
+reads that constant at pod-install time, and the SDK reports it in
+`X-QuickAuth-SDK`. To cut a release, edit that line, then tag `v<version>` —
+CocoaPods resolves the source from the tag, so publishing without it fails.
 
 ---
 
