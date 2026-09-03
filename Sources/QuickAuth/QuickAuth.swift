@@ -31,6 +31,24 @@ public final class QuickAuth {
     /// Underlying URLSession-based API client.
     public lazy var apiClient: APIClient = APIClient(config: { [weak self] in self?.config ?? QuickAuth.placeholderConfig() })
 
+    /// WhatsApp deep-link launcher + return-URL parsing.
+    public lazy var whatsapp: WhatsAppService = WhatsAppService()
+
+    /// Session-token cache. Exposed for tests and for apps that pre-warm or
+    /// invalidate the token themselves.
+    public var tokenManager: TokenManager { apiClient.tokenManager }
+
+    /// Whether `initialize` has run (and has not been undone by `reset`).
+    ///
+    /// Public because the answer is load-bearing for callers: every API call
+    /// made before initialization fails with `.notInitialized`, and an app
+    /// that restores a session on launch needs to know whether it is allowed
+    /// to start one yet.
+    public var isInitialized: Bool {
+        initLock.lock(); defer { initLock.unlock() }
+        return initialized
+    }
+
     private var initialized = false
     private let initLock = NSLock()
 
@@ -95,8 +113,10 @@ public final class QuickAuth {
             await apiClient.tokenManager.invalidate()
         }
         auth.reset(forgetDevice: true)
+        initLock.lock()
         config = QuickAuth.placeholderConfig()
         initialized = false
+        initLock.unlock()
     }
 
     // MARK: - Internals
