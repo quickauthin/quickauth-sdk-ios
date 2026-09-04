@@ -23,10 +23,12 @@ Then add `"QuickAuth"` to your target dependencies.
 ### CocoaPods
 
 ```ruby
-pod 'QuickAuthIn', '~> 1.2'
+pod 'QuickAuthSDK', '~> 1.2'
 ```
 
-> Note: the pod is named `QuickAuthIn` on CocoaPods (the unsuffixed `QuickAuth` name was already taken by an unrelated library). Your Swift code still uses `import QuickAuth` — only the Podfile entry uses the suffixed name.
+> Note: the pod is published as `QuickAuthSDK` on CocoaPods (the unsuffixed `QuickAuth` name is taken by an unrelated library). The Swift module is still `QuickAuth`, so your code keeps using `import QuickAuth` — only the Podfile entry carries the pod name.
+>
+> Upgrading from the old `QuickAuthIn` pod: replace the `pod 'QuickAuthIn'` line with the one above and run `pod install`. No source changes — the module name, and therefore every `import QuickAuth`, is unchanged.
 
 ---
 
@@ -408,8 +410,9 @@ Tests use a `URLProtocol` mock — no live network required. Covers:
   cleared by `reset`)
 - `autoSubmit` (off by default, fires with no subscriber present, one-shot latch,
   re-armed by a resend)
-- Packaging (podspec derives its version from `Config.currentSDKVersion`;
-  privacy manifest ships and parses)
+- Packaging (podspec filename matches `s.name`; module name stays `QuickAuth`;
+  podspec derives its version from `Config.currentSDKVersion`; privacy manifest
+  ships and parses)
 
 ## Releasing
 

@@ -22,7 +22,7 @@ public struct Config {
 
     /// The one place the SDK version is written down.
     ///
-    /// `QuickAuthIn.podspec` parses this literal at pod-install time rather
+    /// `QuickAuthSDK.podspec` parses this literal at pod-install time rather
     /// than declaring its own, so the number in `X-QuickAuth-SDK`, the one in
     /// the fingerprint user-agent and the one CocoaPods publishes cannot drift
     /// apart. Changing the release version means editing this line and nothing
