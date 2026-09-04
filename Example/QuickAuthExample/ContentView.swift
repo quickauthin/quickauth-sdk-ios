@@ -53,14 +53,31 @@ struct ContentView: View {
                         Button("1. Send OTP") {
                             Task {
                                 do {
-                                    try await QuickAuth.shared.auth.initiate(phone: phone)
+                                    // autoSubmit: the SDK verifies the code the
+                                    // system autofills, so step 2 is only for
+                                    // users who type it in themselves.
+                                    try await QuickAuth.shared.auth.initiate(phone: phone, autoSubmit: true)
                                     error = ""
                                 } catch {
                                     self.error = error.localizedDescription
                                 }
                             }
                         }
+                        // QuickAuthOtpField hands system-autofilled codes back to
+                        // the SDK, which is what makes autoSubmit work on iOS.
                         QuickAuthOtpField(code: $code)
+                        Button("Resend code") {
+                            Task {
+                                do {
+                                    // No phone argument: it resends to the number
+                                    // the live attempt is already for.
+                                    try await QuickAuth.shared.auth.resendOtp()
+                                    error = ""
+                                } catch {
+                                    self.error = error.localizedDescription
+                                }
+                            }
+                        }
                         Button("2. Verify") {
                             Task {
                                 do {

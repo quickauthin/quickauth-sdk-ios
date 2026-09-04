@@ -11,6 +11,15 @@ public enum QuickAuthError: Error, LocalizedError, Equatable {
     case notInitialized
     case consentRequired
     case invalidResponse
+    /// A value handed to the SDK is malformed (phone not E.164, code not 4–8
+    /// digits). Distinct from `.invalidResponse`, which used to carry these:
+    /// a caller shown "Invalid server response." for their own bad input has
+    /// no way to work out that the server was never involved.
+    case invalidArgument(String)
+    /// The call is legal but not in this state — `submitOtp` before an OTP was
+    /// sent, `resendOtp` with no attempt to resend. A programming error, not a
+    /// runtime condition.
+    case invalidState(String)
     case http(status: Int, message: String?)
     case network(String)
     case decoding(String)
@@ -21,6 +30,8 @@ public enum QuickAuthError: Error, LocalizedError, Equatable {
         case .notInitialized:           return "QuickAuth.shared.initialize(onTokenExpiry:) must be called first."
         case .consentRequired:          return "User consent required for this operation."
         case .invalidResponse:          return "Invalid server response."
+        case .invalidArgument(let m):   return m
+        case .invalidState(let m):      return m
         case .http(let s, let m):       return "HTTP \(s)\(m.map { ": \($0)" } ?? "")"
         case .network(let m):           return "Network error: \(m)"
         case .decoding(let m):          return "Decoding error: \(m)"

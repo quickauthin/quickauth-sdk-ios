@@ -4,19 +4,19 @@ name: Publish to CocoaPods + SPM
 # → enter the version (e.g. 1.0.0 or 1.0.1) → click Run.
 #
 # The workflow:
-#   1. Bumps the version in QuickAuthIn.podspec
+#   1. Bumps the version in QuickAuthSDK.podspec
 #   2. Runs `swift build` and `swift test` (catches typos / regressions before
 #      Trunk validation does)
 #   3. Commits the version bump
 #   4. Tags it as v<version> AND pushes — SPM consumers pick the SDK up via
 #      this git tag, so it MUST be pushed before pod trunk push runs (the
 #      pod's s.source points at the git tag)
-#   5. Runs `pod trunk push QuickAuthIn.podspec` — uploads to CocoaPods
+#   5. Runs `pod trunk push QuickAuthSDK.podspec` — uploads to CocoaPods
 #
 # One-time setup (per repo):
 #   Settings → Secrets and variables → Actions → New repository secret:
 #     COCOAPODS_TRUNK_TOKEN  — the trunk session token. Get it by running
-#                              `pod trunk register quickauth@codelamda.com 'QuickAuth' --description='gha-runner'`
+#                              `pod trunk register contact@quickauth.in 'QuickAuth' --description='gha-runner'`
 #                              on a Mac, then `cat ~/.netrc | grep cocoapods.org -A 2`
 #                              to find the password line. That password IS the
 #                              trunk token.
@@ -66,12 +66,12 @@ jobs:
       - name: Install CocoaPods
         run: gem install cocoapods --no-document
 
-      - name: Bump QuickAuthIn.podspec to ${{ inputs.version }}
+      - name: Bump QuickAuthSDK.podspec to ${{ inputs.version }}
         run: |
           # Replaces s.version = '<anything>' with the new value.
-          sed -i '' "s/s\.version[[:space:]]*=[[:space:]]*'[^']*'/s.version          = '${{ inputs.version }}'/" QuickAuthIn.podspec
+          sed -i '' "s/s\.version[[:space:]]*=[[:space:]]*'[^']*'/s.version          = '${{ inputs.version }}'/" QuickAuthSDK.podspec
           echo "After bump:"
-          grep "s.version" QuickAuthIn.podspec
+          grep "s.version" QuickAuthSDK.podspec
 
       - name: swift build
         run: swift build
@@ -83,7 +83,7 @@ jobs:
         # --skip-tests because the Trunk side will run them too; we already
         # ran swift test above. --allow-warnings because Apple deprecation
         # warnings are common across iOS SDK bumps.
-        run: pod spec lint QuickAuthIn.podspec --allow-warnings --skip-tests --quick
+        run: pod spec lint QuickAuthSDK.podspec --allow-warnings --skip-tests --quick
 
       - name: Configure git author
         run: |
@@ -94,7 +94,7 @@ jobs:
         # MUST run before `pod trunk push` — the podspec's s.source points
         # at `git tag v#{s.version}`, so Trunk fetches against that tag.
         run: |
-          git add QuickAuthIn.podspec
+          git add QuickAuthSDK.podspec
           git commit -m "chore(release): v${{ inputs.version }}"
           git tag -a "v${{ inputs.version }}" -m "v${{ inputs.version }}"
           git push origin HEAD --follow-tags
@@ -103,15 +103,15 @@ jobs:
         env:
           COCOAPODS_TRUNK_TOKEN: ${{ secrets.COCOAPODS_TRUNK_TOKEN }}
         run: |
-          pod trunk push QuickAuthIn.podspec --allow-warnings --skip-tests --skip-import-validation
+          pod trunk push QuickAuthSDK.podspec --allow-warnings --skip-tests --skip-import-validation
 
       - name: Summary
         run: |
           {
-            echo "## ✅ Published QuickAuthIn ${{ inputs.version }}"
+            echo "## ✅ Published QuickAuthSDK ${{ inputs.version }}"
             echo ""
-            echo "- CocoaPods: https://cocoapods.org/pods/QuickAuthIn"
+            echo "- CocoaPods: https://cocoapods.org/pods/QuickAuthSDK"
             echo "- SPM consumers pick up via tag \`v${{ inputs.version }}\`"
-            echo "- Podfile: \`pod 'QuickAuthIn', '~> ${{ inputs.version }}'\`"
+            echo "- Podfile: \`pod 'QuickAuthSDK', '~> ${{ inputs.version }}'\`"
             echo "- SPM: \`.package(url: \"https://github.com/quickauthin/quickauth-sdk-ios\", from: \"${{ inputs.version }}\")\`"
           } >> $GITHUB_STEP_SUMMARY

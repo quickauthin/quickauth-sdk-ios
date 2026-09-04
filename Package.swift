@@ -19,7 +19,10 @@ let package = Package(
         .target(
             name: "QuickAuth",
             dependencies: [],
-            path: "Sources/QuickAuth"
+            path: "Sources/QuickAuth",
+            // Copied, not processed: App Store review reads the manifest at the
+            // bundle root and .process would be free to relocate it.
+            resources: [.copy("PrivacyInfo.xcprivacy")]
         ),
         .testTarget(
             name: "QuickAuthTests",

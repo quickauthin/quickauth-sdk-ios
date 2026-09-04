@@ -40,8 +40,27 @@ public final class OTPService {
 
     /// Begin an auth attempt. Emits `.otpSent` (show OTP input) or
     /// `.verified` (OneTap fired, no input needed) via `onAuthEvent`.
-    public func initiate(phone: String, channel: OTPChannel = .auto) async throws {
-        try await session.initiate(phone: phone, channel: channel)
+    ///
+    /// Pass `autoSubmit: true` to have the SDK verify an auto-read code
+    /// itself; see `AuthSession.initiate(phone:channel:autoSubmit:)`.
+    public func initiate(
+        phone: String,
+        channel: OTPChannel = .auto,
+        autoSubmit: Bool = false
+    ) async throws {
+        try await session.initiate(phone: phone, channel: channel, autoSubmit: autoSubmit)
+    }
+
+    /// Send the code again, to the number the current attempt is already for.
+    ///
+    /// Takes no phone number deliberately: passing one again is an opportunity
+    /// to pass a different one by accident, which would start a separate
+    /// transaction and leave the user holding two codes, only one of which
+    /// works. The original channel and `autoSubmit` setting are carried over.
+    ///
+    /// - Throws: `QuickAuthError.invalidState` when no attempt is live.
+    public func resendOtp() async throws {
+        try await session.resendOtp()
     }
 
     /// Submit the user-entered OTP. Only valid after an `.otpSent` event.
@@ -57,18 +76,37 @@ public final class OTPService {
 
     // MARK: - Auto-read observer (Combine)
 
-    /// Combine publisher of OTP codes observed by the SDK
+    /// Combine publisher of OTP codes that reached the SDK
     /// (used by `QuickAuthOtpField` / `QuickAuthOTPTextField` to auto-fill).
-    /// Codes published here are also surfaced as `.otpAutoRead` events.
+    ///
+    /// Purely optional. Codes are delivered as `.otpAutoRead` on the event
+    /// handler and auto-submitted (when the attempt asked for it) whether or
+    /// not anyone subscribes here — subscribing is a convenience for callers
+    /// who want a publisher rather than a switch over `AuthEvent`.
     public func observeOTP() -> AnyPublisher<String, Never> {
         codeSubject.eraseToAnyPublisher()
     }
 
-    /// Manually publish a code into the observer stream. Surfaces to both
-    /// the Combine publisher and the `onAuthEvent` stream.
-    public func publishObservedCode(_ code: String) {
+    /// Feed a code the SDK could not read itself into the auth flow — the
+    /// bridge from OS-level `oneTimeCode` autofill (or a push payload, or your
+    /// own field) into the SDK.
+    ///
+    /// Surfaces on both the Combine publisher and the `onAuthEvent` stream,
+    /// exactly once each, and auto-submits when the current attempt was
+    /// started with `autoSubmit: true`.
+    public func publishAutoReadCode(_ code: String) {
+        // Screened once, here, so the publisher and the event stream never
+        // disagree about what counted as a code.
+        guard AuthSession.isOtpCode(code) else { return }
         codeSubject.send(code)
         session.publishAutoReadCode(code)
+    }
+
+    /// Former name of `publishAutoReadCode(_:)`, kept so 1.1.x call sites keep
+    /// compiling.
+    @available(*, deprecated, renamed: "publishAutoReadCode(_:)")
+    public func publishObservedCode(_ code: String) {
+        publishAutoReadCode(code)
     }
 
     // MARK: - WhatsApp login
@@ -83,31 +121,14 @@ public final class OTPService {
         prefilledText: String = "Login",
         returnURL: URL? = nil
     ) -> Bool {
-        let digits = businessNumber.filter { $0.isNumber }
-        var components = URLComponents(string: "https://wa.me/\(digits)")
-        var queryItems: [URLQueryItem] = [
-            URLQueryItem(name: "text", value: prefilledText)
-        ]
-        if let returnURL = returnURL {
-            queryItems.append(URLQueryItem(name: "ref", value: returnURL.absoluteString))
-        }
-        components?.queryItems = queryItems
-        guard let url = components?.url else { return false }
-
-        #if canImport(UIKit)
-        guard Thread.isMainThread else {
-            var ok = false
-            DispatchQueue.main.sync {
-                ok = UIApplication.shared.canOpenURL(url)
-                if ok { UIApplication.shared.open(url, options: [:], completionHandler: nil) }
-            }
-            return ok
-        }
-        guard UIApplication.shared.canOpenURL(url) else { return false }
-        UIApplication.shared.open(url, options: [:], completionHandler: nil)
-        return true
-        #else
-        return false
-        #endif
+        whatsapp.open(
+            businessNumber: businessNumber,
+            prefilledText: prefilledText,
+            returnURL: returnURL
+        )
     }
+
+    /// Stateless helper; the facade exposes its own instance at
+    /// `QuickAuth.shared.whatsapp`.
+    private let whatsapp = WhatsAppService()
 }
